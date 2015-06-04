@@ -59,7 +59,7 @@ RUN cd $GOROOT/src && GOARCH=386 ./make.bash --no-clean
 
 # Requisites for building Lantern on Linux.
 RUN yum install -y gtk3-devel libappindicator-gtk3 libappindicator-gtk3-devel && yum clean all
-RUN yum install -y pango.i686 pango-devel.i686 gtk3-devel.i686 gdk-pixbuf2-devel.i686 cairo-gobject-devel.i686 atk-devel.i686 libappindicator-gtk3-devel.i686 libdbusmenu-devel.i686 dbus-devel.i686 pkgconfig.i686 && yum clean all
+RUN yum install -y pango.i686 pango-devel.i686 gtk3-devel.i686 gdk-pixbuf2-devel.i686 cairo-gobject-devel.i686 atk-devel.i686 libappindicator-gtk3-devel.i686 libdbusmenu-devel.i686 dbus-devel.i686 pkgconfig pkgconfig.i686 && yum clean all
 
 # Requisites for packing Lantern for Debian.
 # The fpm packer. (https://rubygems.org/gems/fpm)
