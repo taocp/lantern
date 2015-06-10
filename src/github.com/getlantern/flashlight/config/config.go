@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"code.google.com/p/go-uuid/uuid"
+	"github.com/go-fsnotify/fsnotify"
 	"github.com/spf13/viper"
 
 	"github.com/getlantern/appdir"
@@ -90,6 +91,8 @@ func Init() (*Config, error) {
 	}
 	var cfg *Config = &Config{}
 	cfg.applyFlags()
+	// TODO: feed with actual data from cloud config
+	cfg.ApplyDefaults()
 	// TODO: feed actual parameter from yaml to cfg
 	err = updateGlobals(cfg)
 	if err != nil {
@@ -100,6 +103,43 @@ func Init() (*Config, error) {
 
 // Run runs the configuration system.
 func Run(updateHandler func(updated *Config)) error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer watcher.Close()
+
+	configPath, err := InConfigDir("lantern.yaml")
+	if err != nil {
+		return err
+	}
+	err = watcher.Add(configPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for {
+		select {
+		case event := <-watcher.Events:
+			if event.Op&fsnotify.Write == fsnotify.Write {
+				viper.ReadInConfig()
+				var cfg *Config = &Config{}
+				cfg.applyFlags()
+				// TODO: feed with actual data from cloud config
+				cfg.ApplyDefaults()
+				// TODO: feed actual parameter from yaml to cfg
+				// especially trustedcas
+				err = updateGlobals(cfg)
+				if err != nil {
+					continue
+				}
+				updateHandler(cfg)
+			}
+		case err := <-watcher.Errors:
+			log.Errorf("fsnotify error:", err)
+		}
+	}
+
 	for {
 		// TODO: feed actual parameter from yaml to cfg
 		/*next := m.Next()
@@ -160,9 +200,8 @@ func InConfigDir(filename string) (string, error) {
 
 // TrustedCACerts returns a slice of PEM-encoded certs for the trusted CAs
 func (cfg *Config) TrustedCACerts() []string {
-	trustedCAs := viper.Get("trustedcas").([]CA)
-	certs := make([]string, 0, len(trustedCAs))
-	for _, ca := range trustedCAs {
+	certs := make([]string, 0, len(cfg.TrustedCAs))
+	for _, ca := range cfg.TrustedCAs {
 		certs = append(certs, ca.Cert)
 	}
 	return certs
