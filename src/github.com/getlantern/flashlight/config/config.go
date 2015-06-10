@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -15,13 +16,13 @@ import (
 	"time"
 
 	"code.google.com/p/go-uuid/uuid"
+	"github.com/spf13/viper"
 
 	"github.com/getlantern/appdir"
 	"github.com/getlantern/fronted"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/proxiedsites"
 	"github.com/getlantern/yaml"
-	"github.com/getlantern/yamlconf"
 
 	"github.com/getlantern/flashlight/client"
 	"github.com/getlantern/flashlight/globals"
@@ -38,7 +39,6 @@ const (
 
 var (
 	log                 = golog.LoggerFor("flashlight.config")
-	m                   *yamlconf.Manager
 	lastCloudConfigETag = map[string]string{}
 	httpClient          atomic.Value
 )
@@ -65,7 +65,8 @@ type Config struct {
 func Configure(c *http.Client) {
 	httpClient.Store(c)
 	// No-op if already started.
-	m.StartPolling()
+	// TODO: fs-notify
+	//m.StartPolling()
 }
 
 // CA represents a certificate authority
@@ -76,54 +77,23 @@ type CA struct {
 
 // Init initializes the configuration system.
 func Init() (*Config, error) {
-	configPath, err := InConfigDir("lantern.yaml")
+	configPath, err := InConfigDir("lantern")
 	if err != nil {
 		return nil, err
 	}
-	m = &yamlconf.Manager{
-		FilePath:         configPath,
-		FilePollInterval: 1 * time.Second,
-		ConfigServerAddr: *configaddr,
-		EmptyConfig: func() yamlconf.Config {
-			return &Config{}
-		},
-		OneTimeSetup: func(ycfg yamlconf.Config) error {
-			cfg := ycfg.(*Config)
-			return cfg.applyFlags()
-		},
-		CustomPoll: func(currentCfg yamlconf.Config) (mutate func(yamlconf.Config) error, waitTime time.Duration, err error) {
-			// By default, do nothing
-			mutate = func(ycfg yamlconf.Config) error {
-				// do nothing
-				return nil
-			}
-			cfg := currentCfg.(*Config)
-			waitTime = cfg.cloudPollSleepTime()
-			if cfg.CloudConfig == "" {
-				// Config doesn't have a CloudConfig, just ignore
-				return
-			}
-
-			var bytes []byte
-			bytes, err = cfg.fetchCloudConfig()
-			if err == nil && bytes != nil {
-				mutate = func(ycfg yamlconf.Config) error {
-					log.Debugf("Merging cloud configuration")
-					cfg := ycfg.(*Config)
-					return cfg.updateFrom(bytes)
-				}
-			}
-			return
-		},
+	path, name := path.Split(configPath)
+	viper.SetConfigName(name)
+	viper.AddConfigPath(path)  // path to look for the config file in
+	err = viper.ReadInConfig() // Find and read the config file
+	if err != nil {
+		return nil, fmt.Errorf("Unable to read lantern.yaml: %s", err)
 	}
-	initial, err := m.Init()
-	var cfg *Config
-	if err == nil {
-		cfg = initial.(*Config)
-		err = updateGlobals(cfg)
-		if err != nil {
-			return nil, err
-		}
+	var cfg *Config = &Config{}
+	cfg.applyFlags()
+	// TODO: feed actual parameter from yaml to cfg
+	err = updateGlobals(cfg)
+	if err != nil {
+		return nil, err
 	}
 	return cfg, err
 }
@@ -131,18 +101,19 @@ func Init() (*Config, error) {
 // Run runs the configuration system.
 func Run(updateHandler func(updated *Config)) error {
 	for {
-		next := m.Next()
+		// TODO: feed actual parameter from yaml to cfg
+		/*next := m.Next()
 		nextCfg := next.(*Config)
 		err := updateGlobals(nextCfg)
 		if err != nil {
 			return err
 		}
-		updateHandler(nextCfg)
+		updateHandler(nextCfg)*/
 	}
 }
 
 func updateGlobals(cfg *Config) error {
-	globals.InstanceId = cfg.InstanceId
+	globals.InstanceId = viper.GetString("instanceid")
 	err := globals.SetTrustedCAs(cfg.TrustedCACerts())
 	if err != nil {
 		return fmt.Errorf("Unable to configure trusted CAs: %s", err)
@@ -152,9 +123,10 @@ func updateGlobals(cfg *Config) error {
 
 // Update updates the configuration using the given mutator function.
 func Update(mutate func(cfg *Config) error) error {
-	return m.Update(func(ycfg yamlconf.Config) error {
+	// TODO: use viper.Set()
+	return nil /*m.Update(func(ycfg yamlconf.Config) error {
 		return mutate(ycfg.(*Config))
-	})
+	})*/
 }
 
 // InConfigDir returns the path to the given filename inside of the configdir.
@@ -188,8 +160,9 @@ func InConfigDir(filename string) (string, error) {
 
 // TrustedCACerts returns a slice of PEM-encoded certs for the trusted CAs
 func (cfg *Config) TrustedCACerts() []string {
-	certs := make([]string, 0, len(cfg.TrustedCAs))
-	for _, ca := range cfg.TrustedCAs {
+	trustedCAs := viper.Get("trustedcas").([]CA)
+	certs := make([]string, 0, len(trustedCAs))
+	for _, ca := range trustedCAs {
 		certs = append(certs, ca.Cert)
 	}
 	return certs
