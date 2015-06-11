@@ -245,7 +245,7 @@ func addExitFunc(exitFunc func()) {
 
 func applyClientConfig(client *client.Client, cfg *config.Config) {
 	autoupdate.Configure()
-	logging.Configure(cfg, version, buildDate)
+	logging.Configure(version, buildDate)
 	settings.Configure(version, buildDate)
 	proxiedsites.Configure()
 	analytics.Configure(cfg, version)

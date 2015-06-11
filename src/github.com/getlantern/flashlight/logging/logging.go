@@ -10,8 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/spf13/viper"
+
 	"github.com/getlantern/appdir"
-	"github.com/getlantern/flashlight/config"
 	"github.com/getlantern/flashlight/geolookup"
 	"github.com/getlantern/flashlight/util"
 	"github.com/getlantern/go-loggly"
@@ -67,7 +68,7 @@ func Init() error {
 	return nil
 }
 
-func Configure(cfg *config.Config, version string, buildDate string) {
+func Configure(version string, buildDate string) {
 	if logglyToken == "" {
 		log.Debugf("No logglyToken, not sending error logs to Loggly")
 		return
@@ -82,9 +83,9 @@ func Configure(cfg *config.Config, version string, buildDate string) {
 		log.Error("No build date configured, Loggly won't include build date information")
 		return
 	}
-
+	proxyAddr := viper.GetString("addr")
 	cfgMutex.Lock()
-	if cfg.Addr == lastAddr {
+	if proxyAddr == lastAddr {
 		cfgMutex.Unlock()
 		log.Debug("Logging configuration unchanged")
 		return
@@ -93,8 +94,8 @@ func Configure(cfg *config.Config, version string, buildDate string) {
 	// Using a goroutine because we'll be using waitforserver and at this time
 	// the proxy is not yet ready.
 	go func() {
-		lastAddr = cfg.Addr
-		enableLoggly(cfg, version, buildDate)
+		lastAddr = proxyAddr
+		enableLoggly(proxyAddr, version, buildDate)
 		cfgMutex.Unlock()
 	}()
 }
@@ -111,21 +112,21 @@ func timestamped(orig io.Writer) io.Writer {
 	})
 }
 
-func enableLoggly(cfg *config.Config, version string, buildDate string) {
-	if cfg.Addr == "" {
+func enableLoggly(proxyAddr string, version string, buildDate string) {
+	if proxyAddr == "" {
 		log.Error("No known proxy, won't report to Loggly")
 		removeLoggly()
 		return
 	}
-
-	client, err := util.PersistentHTTPClient(cfg.CloudConfigCA, cfg.Addr)
+	ca := viper.GetString("cloudconfigca")
+	client, err := util.PersistentHTTPClient(ca, proxyAddr)
 	if err != nil {
 		log.Errorf("Could not create proxied HTTP client, not logging to Loggly: %v", err)
 		removeLoggly()
 		return
 	}
 
-	log.Debugf("Sending error logs to Loggly via proxy at %v", cfg.Addr)
+	log.Debugf("Sending error logs to Loggly via proxy at %v", proxyAddr)
 
 	lang, _ := jibber_jabber.DetectLanguage()
 	logglyWriter := &logglyErrorWriter{
@@ -135,7 +136,7 @@ func enableLoggly(cfg *config.Config, version string, buildDate string) {
 		client:          loggly.New(logglyToken),
 	}
 	logglyWriter.client.Defaults["hostname"] = "hidden"
-	logglyWriter.client.Defaults["instanceid"] = cfg.InstanceId
+	logglyWriter.client.Defaults["instanceid"] = viper.GetString("instanceid")
 	logglyWriter.client.SetHTTPClient(client)
 	addLoggly(logglyWriter)
 }
