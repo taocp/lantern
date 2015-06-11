@@ -190,11 +190,11 @@ func parseFlags() {
 func runClientProxy(cfg *config.Config) {
 	var err error
 
-	cfg.Addr = viper.GetString("addr")
-	cfg.UIAddr = viper.GetString("uiaddr")
+	proxyAddr := viper.GetString("addr")
+	uiAddr := viper.GetString("uiaddr")
 
 	// Set Lantern as system proxy by creating and using a PAC file.
-	setProxyAddr(cfg.Addr)
+	setProxyAddr(proxyAddr)
 
 	if err = setUpPacTool(); err != nil {
 		exit(err)
@@ -202,14 +202,14 @@ func runClientProxy(cfg *config.Config) {
 
 	// Create the client-side proxy.
 	client := &client.Client{
-		Addr:         cfg.Addr,
+		Addr:         proxyAddr,
 		ReadTimeout:  0, // don't timeout
 		WriteTimeout: 0,
 	}
 
 	// Start user interface.
-	if cfg.UIAddr != "" {
-		if err = ui.Start(cfg.UIAddr); err != nil {
+	if uiAddr != "" {
+		if err = ui.Start(uiAddr); err != nil {
 			exit(fmt.Errorf("Unable to start UI: %v", err))
 			return
 		}
@@ -244,7 +244,7 @@ func addExitFunc(exitFunc func()) {
 }
 
 func applyClientConfig(client *client.Client, cfg *config.Config) {
-	autoupdate.Configure(cfg)
+	autoupdate.Configure()
 	logging.Configure(cfg, version, buildDate)
 	settings.Configure(version, buildDate)
 	proxiedsites.Configure()

@@ -6,10 +6,9 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/getlantern/flashlight/client"
-	"github.com/getlantern/flashlight/server"
-	"github.com/getlantern/flashlight/statreporter"
-)
+	/*	"github.com/getlantern/flashlight/client"
+		"github.com/getlantern/flashlight/server"
+		"github.com/getlantern/flashlight/statreporter"*/)
 
 var (
 	configdir       = flag.String("configdir", "", "directory in which to store configuration, including flashlight.yaml (defaults to current directory)")
