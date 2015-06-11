@@ -3,8 +3,8 @@ package analytics
 import (
 	"net/http"
 
-	"github.com/getlantern/flashlight/config"
 	"github.com/mitchellh/mapstructure"
+	"github.com/spf13/viper"
 
 	"github.com/getlantern/analytics"
 	"github.com/getlantern/flashlight/ui"
@@ -24,11 +24,9 @@ var (
 	stopCh     chan bool
 )
 
-func Configure(cfg *config.Config, version string) {
-
-	if cfg.AutoReport != nil && *cfg.AutoReport {
-		analytics.Configure(TrackingId, version, cfg.Addr)
-
+func Configure(version string) {
+	if viper.GetBool("autoreport") {
+		analytics.Configure(TrackingId, version, viper.GetString("addr"))
 		err := StartService()
 		if err != nil {
 			log.Errorf("Error starting analytics service: %q", err)

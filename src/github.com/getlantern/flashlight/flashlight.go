@@ -145,7 +145,7 @@ func doMain() error {
 	log.Debug("Running proxy")
 	if cfg.IsDownstream() {
 		// This will open a proxy on the address and port given by -addr
-		runClientProxy(cfg)
+		runClientProxy()
 	} else if cfg.IsUpstream() {
 		runServerProxy(cfg)
 	} else {
@@ -187,7 +187,7 @@ func parseFlags() {
 }
 
 // runClientProxy runs the client-side (get mode) proxy.
-func runClientProxy(cfg *config.Config) {
+func runClientProxy() {
 	var err error
 
 	proxyAddr := viper.GetString("addr")
@@ -219,12 +219,12 @@ func runClientProxy(cfg *config.Config) {
 		}
 	}
 
-	applyClientConfig(client, cfg)
+	applyClientConfig(client)
 	// Continually poll for config updates and update client accordingly
 	go func() {
 		for {
-			cfg := <-configUpdates
-			applyClientConfig(client, cfg)
+			_ = <-configUpdates
+			applyClientConfig(client)
 		}
 	}()
 
@@ -243,12 +243,12 @@ func addExitFunc(exitFunc func()) {
 	chExitFuncs <- exitFunc
 }
 
-func applyClientConfig(client *client.Client, cfg *config.Config) {
+func applyClientConfig(client *client.Client) {
 	autoupdate.Configure()
 	logging.Configure(version, buildDate)
 	settings.Configure(version, buildDate)
 	proxiedsites.Configure()
-	analytics.Configure(cfg, version)
+	analytics.Configure(version)
 	log.Debugf("Proxy all traffic or not: %v", viper.GetBool("client.proxyall"))
 	ServeProxyAllPacFile(viper.GetBool("client.proxyall"))
 	// Note - we deliberately ignore the error from statreporter.Configure here
@@ -282,7 +282,7 @@ func runServerProxy(cfg *config.Config) {
 		log.Fatal(err)
 	}
 
-	updateServerSideConfigClient(cfg)
+	updateServerSideConfigClient()
 
 	srv := &server.Server{
 		Addr:         cfg.Addr,
@@ -305,7 +305,7 @@ func runServerProxy(cfg *config.Config) {
 	go func() {
 		for {
 			cfg := <-configUpdates
-			updateServerSideConfigClient(cfg)
+			updateServerSideConfigClient()
 			statreporter.Configure()
 			srv.Configure(cfg.Server)
 		}
@@ -324,8 +324,9 @@ func runServerProxy(cfg *config.Config) {
 	}
 }
 
-func updateServerSideConfigClient(cfg *config.Config) {
-	client, err := util.HTTPClient(cfg.CloudConfigCA, "")
+func updateServerSideConfigClient() {
+	ca := viper.GetString("cloudconfigca")
+	client, err := util.HTTPClient(ca, "")
 	if err != nil {
 		log.Errorf("Couldn't create http.Client for fetching the config")
 		return
