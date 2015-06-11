@@ -243,7 +243,7 @@ func addExitFunc(exitFunc func()) {
 func applyClientConfig(client *client.Client, cfg *config.Config) {
 	autoupdate.Configure(cfg)
 	logging.Configure(cfg, version, buildDate)
-	settings.Configure(cfg, version, buildDate)
+	settings.Configure(version, buildDate)
 	proxiedsites.Configure()
 	analytics.Configure(cfg, version)
 	log.Debugf("Proxy all traffic or not: %v", viper.GetBool("client.proxyall"))

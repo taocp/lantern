@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/getlantern/flashlight/analytics"
-	"github.com/getlantern/flashlight/config"
+	"github.com/spf13/viper"
+
+	//"github.com/getlantern/flashlight/analytics"
+	//"github.com/getlantern/flashlight/config"
 	"github.com/getlantern/launcher"
 
 	"github.com/getlantern/flashlight/ui"
@@ -34,7 +36,7 @@ type Settings struct {
 	ProxyAll   bool
 }
 
-func Configure(cfg *config.Config, version, buildDate string) {
+func Configure(version, buildDate string) {
 
 	cfgMutex.Lock()
 	defer cfgMutex.Unlock()
@@ -44,9 +46,9 @@ func Configure(cfg *config.Config, version, buildDate string) {
 		baseSettings = &Settings{
 			Version:    version,
 			BuildDate:  buildDate,
-			AutoReport: *cfg.AutoReport,
-			AutoLaunch: *cfg.AutoLaunch,
-			ProxyAll:   cfg.Client.ProxyAll,
+			AutoReport: viper.GetBool("autoreport"),
+			AutoLaunch: viper.GetBool("autolaunch"),
+			ProxyAll:   viper.GetBool("client.proxyall"),
 		}
 
 		err := start(baseSettings)
@@ -56,14 +58,17 @@ func Configure(cfg *config.Config, version, buildDate string) {
 		}
 		go read()
 	} else {
-		// TODO
-		/*if *cfg.AutoLaunch != baseSettings.AutoLaunch {
+		if viper.GetBool("autolaunch") != baseSettings.AutoLaunch {
 			// autolaunch setting modified on disk
-			launcher.CreateLaunchFile(*cfg.AutoLaunch)
+			launcher.CreateLaunchFile(viper.GetBool("autolaunch"))
 		}
-		baseSettings.AutoReport = *cfg.AutoReport
-		baseSettings.AutoLaunch = *cfg.AutoLaunch
-		baseSettings.ProxyAll = cfg.Client.ProxyAll*/
+		baseSettings = &Settings{
+			Version:    version,
+			BuildDate:  buildDate,
+			AutoReport: viper.GetBool("autoreport"),
+			AutoLaunch: viper.GetBool("autolaunch"),
+			ProxyAll:   viper.GetBool("client.proxyall"),
+		}
 	}
 }
 
@@ -87,8 +92,9 @@ func read() {
 	log.Tracef("Reading settings messages!!")
 	for msg := range service.In {
 		log.Tracef("Read settings message!! %q", msg)
-		settings := (msg).(map[string]interface{})
-		config.Update(func(updated *config.Config) error {
+		// settings := (msg).(map[string]interface{})
+		// TODO: write to config file
+		/*config.Update(func(updated *config.Config) error {
 
 			if autoReport, ok := settings["autoReport"].(bool); ok {
 				// turn on/off analaytics reporting
@@ -108,6 +114,6 @@ func read() {
 				*updated.AutoLaunch = autoLaunch
 			}
 			return nil
-		})
+		})*/
 	}
 }
