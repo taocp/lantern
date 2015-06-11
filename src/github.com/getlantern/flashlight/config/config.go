@@ -98,6 +98,25 @@ func Init() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	t := time.NewTimer(cfg.cloudPollSleepTime())
+	go func() {
+		for {
+			<-t.C
+			buf, err := cfg.fetchCloudConfig()
+			if err != nil {
+				log.Debug(err)
+				continue
+			}
+			if buf == nil {
+				log.Debugf("Config unchanged in cloud")
+				continue
+			}
+			if err := cfg.updateFrom(buf); err != nil {
+				log.Debug(err)
+			}
+			t.Reset(cfg.cloudPollSleepTime())
+		}
+	}()
 	return cfg, err
 }
 
@@ -207,7 +226,7 @@ func (cfg *Config) TrustedCACerts() []string {
 	return certs
 }
 
-// GetVersion implements the method from interface yamlconf.Config
+/*// GetVersion implements the method from interface yamlconf.Config
 func (cfg *Config) GetVersion() int {
 	return cfg.Version
 }
@@ -222,7 +241,7 @@ func (cfg *Config) SetVersion(version int) {
 // ApplyDefaults populates default values on a Config to make sure that we have
 // a minimum viable config for running.  As new settings are added to
 // flashlight, this function should be updated to provide sensible defaults for
-// those settings.
+// those settings.*/
 func (cfg *Config) ApplyDefaults() {
 	if cfg.Role == "" {
 		cfg.Role = "client"
@@ -276,6 +295,12 @@ func (cfg *Config) ApplyDefaults() {
 	if cfg.TrustedCAs == nil || len(cfg.TrustedCAs) == 0 {
 		cfg.TrustedCAs = defaultTrustedCAs
 	}
+	/*viper.SetDefault("role", "client")
+	viper.SetDefault("addr", "localhost:8787")
+	viper.SetDefault("cloudconfig", "https://config.getiantem.org/cloud.yaml.gz")
+	viper.SetDefault("instanceid", hex.EncodeToString(uuid.NodeID()))
+	viper.SetDefault("stats.statshubaddr", "pure-journey-3547.herokuapp.com")
+	viper.SetDefault("stats.reportingperiod", "localhost:8787")*/
 }
 
 func (cfg *Config) applyClientDefaults() {
@@ -378,7 +403,6 @@ func (cfg Config) fetchCloudConfig() ([]byte, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 304 {
-		log.Debugf("Config unchanged in cloud")
 		return nil, nil
 	} else if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("Unexpected response status: %d", resp.StatusCode)
@@ -392,10 +416,40 @@ func (cfg Config) fetchCloudConfig() ([]byte, error) {
 	return ioutil.ReadAll(gzReader)
 }
 
+type cloudConfig struct {
+	Client       client.ClientConfig
+	ProxiedSites proxiedsites.Config
+	TrustedCAs   []*CA
+}
+
 // updateFrom creates a new Config by 'merging' the given yaml into this Config.
 // The masquerade sets, the collections of servers, and the trusted CAs in the
 // update yaml  completely replace the ones in the original Config.
 func (updated *Config) updateFrom(updateBytes []byte) error {
+	ccfg := cloudConfig{
+		Client: client.ClientConfig{
+			FrontedServers: []*client.FrontedServerInfo{},
+			ChainedServers: map[string]*client.ChainedServerInfo{},
+			MasqueradeSets: map[string][]*fronted.Masquerade{},
+		},
+		ProxiedSites: proxiedsites.Config{
+			Delta: &proxiedsites.Delta{
+				Additions: []string{},
+				Deletions: []string{},
+			},
+			Cloud: []string{},
+		},
+		TrustedCAs: []*CA{},
+	}
+	err := yaml.Unmarshal(updateBytes, &ccfg)
+	if err != nil {
+		return fmt.Errorf("Unable to unmarshal YAML for update: %s", err)
+	}
+	// Use SetDefault here so same item from local file can override it
+	viper.SetDefault("client.chainedservers", ccfg.Client.ChainedServers)
+	viper.SetDefault("client.frontedservers", ccfg.Client.FrontedServers)
+	viper.SetDefault("client.masqueradesets", ccfg.Client.MasqueradeSets)
+	viper.SetDefault("trustedcas", ccfg.TrustedCAs)
 	// XXX: does this need a mutex, along with everyone that uses the config?
 	oldFrontedServers := updated.Client.FrontedServers
 	oldChainedServers := updated.Client.ChainedServers
@@ -404,8 +458,9 @@ func (updated *Config) updateFrom(updateBytes []byte) error {
 	updated.Client.FrontedServers = []*client.FrontedServerInfo{}
 	updated.Client.ChainedServers = map[string]*client.ChainedServerInfo{}
 	updated.Client.MasqueradeSets = map[string][]*fronted.Masquerade{}
+
 	updated.TrustedCAs = []*CA{}
-	err := yaml.Unmarshal(updateBytes, updated)
+	err = yaml.Unmarshal(updateBytes, updated)
 	if err != nil {
 		updated.Client.FrontedServers = oldFrontedServers
 		updated.Client.ChainedServers = oldChainedServers
