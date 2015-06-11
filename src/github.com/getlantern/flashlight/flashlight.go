@@ -135,7 +135,7 @@ func doMain() error {
 	defer finishProfiling()
 
 	// Configure stats initially
-	err = statreporter.Configure(cfg.Stats)
+	err = statreporter.Configure()
 	if err != nil {
 		return err
 	}
@@ -244,7 +244,7 @@ func applyClientConfig(client *client.Client, cfg *config.Config) {
 	log.Debugf("Proxy all traffic or not: %v", cfg.Client.ProxyAll)
 	ServeProxyAllPacFile(cfg.Client.ProxyAll)
 	// Note - we deliberately ignore the error from statreporter.Configure here
-	statreporter.Configure(cfg.Stats)
+	statreporter.Configure()
 
 	// Update client configuration and get the highest QOS dialer available.
 	hqfd := client.Configure(cfg.Client)
@@ -298,7 +298,7 @@ func runServerProxy(cfg *config.Config) {
 		for {
 			cfg := <-configUpdates
 			updateServerSideConfigClient(cfg)
-			statreporter.Configure(cfg.Stats)
+			statreporter.Configure()
 			srv.Configure(cfg.Server)
 		}
 	}()

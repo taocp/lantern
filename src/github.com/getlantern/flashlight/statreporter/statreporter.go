@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/spf13/viper"
+
 	"github.com/getlantern/golog"
 
 	"github.com/getlantern/flashlight/globals"
@@ -55,7 +57,12 @@ type reportPoster func(report report) error
 
 // Start runs a goroutine that periodically coalesces the collected statistics
 // and reports them to statshub via HTTPS post
-func Configure(cfg *Config) error {
+func Configure() error {
+	cfg := &Config{
+		StatshubAddr:    viper.GetString("stats.statshubaddr"),
+		ReportingPeriod: time.Duration(viper.GetInt("stats.reportingperiod")) * time.Second,
+	}
+	log.Debugf("New statsreporter configuration: %v", *cfg)
 	if cfg.StatshubAddr == "" {
 		return fmt.Errorf("Must specify StatshubAddr if reporting stats")
 	}
