@@ -99,8 +99,6 @@ func (client *Client) Configure() fronted.Dialer {
 	client.cfgMutex.Lock()
 	defer client.cfgMutex.Unlock()
 
-	log.Debug("Configure() called")
-
 	if client.priorCfg != nil && client.priorTrustedCAs != nil {
 		if reflect.DeepEqual(client.priorCfg, cfg) && reflect.DeepEqual(client.priorTrustedCAs, globals.TrustedCAs) {
 			log.Debugf("Client configuration unchanged")

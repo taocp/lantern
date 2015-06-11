@@ -190,6 +190,9 @@ func parseFlags() {
 func runClientProxy(cfg *config.Config) {
 	var err error
 
+	cfg.Addr = viper.GetString("addr")
+	cfg.UIAddr = viper.GetString("uiaddr")
+
 	// Set Lantern as system proxy by creating and using a PAC file.
 	setProxyAddr(cfg.Addr)
 

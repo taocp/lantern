@@ -86,7 +86,7 @@ func Init() (*Config, error) {
 	cfg.applyDefaults()
 	cfg.applyFlags()
 	// TODO: feed actual parameter from yaml to cfg
-	err = updateGlobals(cfg)
+	err = updateGlobals()
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func Run(updateHandler func(updated *Config)) error {
 				cfg.applyDefaults()
 				// TODO: feed actual parameter from yaml to cfg
 				// especially trustedcas
-				err = updateGlobals(cfg)
+				err = updateGlobals()
 				if err != nil {
 					continue
 				}
@@ -171,9 +171,9 @@ func Run(updateHandler func(updated *Config)) error {
 	}
 }
 
-func updateGlobals(cfg *Config) error {
+func updateGlobals() error {
 	globals.InstanceId = viper.GetString("instanceid")
-	err := globals.SetTrustedCAs(cfg.TrustedCACerts())
+	err := globals.SetTrustedCAs(TrustedCACerts())
 	if err != nil {
 		return fmt.Errorf("Unable to configure trusted CAs: %s", err)
 	}
@@ -218,9 +218,10 @@ func InConfigDir(filename string) (string, error) {
 }
 
 // TrustedCACerts returns a slice of PEM-encoded certs for the trusted CAs
-func (cfg *Config) TrustedCACerts() []string {
-	certs := make([]string, 0, len(cfg.TrustedCAs))
-	for _, ca := range cfg.TrustedCAs {
+func TrustedCACerts() []string {
+	cas := viper.Get("trustedcas").([]*CA)
+	certs := make([]string, 0, len(cas))
+	for _, ca := range cas {
 		certs = append(certs, ca.Cert)
 	}
 	return certs
@@ -274,14 +275,14 @@ func (cfg *Config) applyDefaults() {
 	}
 	viper.Set("client.chainedservers", css)
 
-	viper.SetDefault("proxiedsites", proxiedsites.Config{
+	viper.Set("proxiedsites", proxiedsites.Config{
 		Delta: &proxiedsites.Delta{
 			Additions: []string{},
 			Deletions: []string{},
 		},
 		Cloud: defaultProxiedSites,
 	})
-	viper.SetDefault("trustedcas", defaultTrustedCAs)
+	viper.Set("trustedcas", defaultTrustedCAs)
 }
 
 func (cfg *Config) IsDownstream() bool {

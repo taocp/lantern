@@ -2,7 +2,7 @@ package config
 
 import (
 	"flag"
-	"time"
+	//	"time"
 
 	"github.com/spf13/viper"
 
@@ -35,7 +35,7 @@ var (
 // applyFlags updates this Config from any command-line flags that were passed
 // in. ApplyFlags assumes that flag.Parse() has already been called.
 func (updated *Config) applyFlags() error {
-	if updated.Client == nil {
+	/*if updated.Client == nil {
 		updated.Client = &client.ClientConfig{}
 	}
 
@@ -45,7 +45,7 @@ func (updated *Config) applyFlags() error {
 
 	if updated.Stats == nil {
 		updated.Stats = &statreporter.Config{}
-	}
+	}*/
 
 	var visitErr error
 
@@ -53,7 +53,7 @@ func (updated *Config) applyFlags() error {
 	flag.Visit(func(f *flag.Flag) {
 		log.Tracef("Set flag %s with value %s", f.Name, f.Value.String())
 		viper.Set(f.Name, f.Value.String())
-		switch f.Name {
+		/*switch f.Name {
 		// General
 		case "cloudconfig":
 			updated.CloudConfig = *cloudconfig
@@ -91,15 +91,15 @@ func (updated *Config) applyFlags() error {
 			}
 		case "registerat":
 			updated.Server.RegisterAt = *registerat
-		}
+		}*/
 	})
 	if visitErr != nil {
 		return visitErr
 	}
 	// Settings that get set no matter what
-	updated.CpuProfile = *cpuprofile
+	/*updated.CpuProfile = *cpuprofile
 	updated.MemProfile = *memprofile
-	updated.Server.Unencrypted = *unencrypted
+	updated.Server.Unencrypted = *unencrypted*/
 
 	return nil
 }
