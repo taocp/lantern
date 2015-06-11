@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/spf13/viper"
+
 	"github.com/getlantern/detour"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/proxiedsites"
@@ -25,8 +27,13 @@ var (
 	startMutex sync.Mutex
 )
 
-func Configure(cfg *proxiedsites.Config) {
-	delta := proxiedsites.Configure(cfg)
+func Configure() {
+	cfg, ok := viper.Get("proxiedsites").(proxiedsites.Config)
+	if !ok {
+		log.Errorf("Invalid configuration")
+		return
+	}
+	delta := proxiedsites.Configure(&cfg)
 	startMutex.Lock()
 
 	if delta != nil {

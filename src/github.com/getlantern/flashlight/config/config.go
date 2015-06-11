@@ -450,6 +450,7 @@ func updateFrom(updateBytes []byte) error {
 	viper.SetDefault("client.chainedservers", ccfg.Client.ChainedServers)
 	viper.SetDefault("client.frontedservers", ccfg.Client.FrontedServers)
 	viper.SetDefault("client.masqueradesets", ccfg.Client.MasqueradeSets)
+	viper.SetDefault("proxiedsites", ccfg.ProxiedSites)
 	viper.SetDefault("trustedcas", ccfg.TrustedCAs)
 	/*// XXX: does this need a mutex, along with everyone that uses the config?
 	oldFrontedServers := updated.Client.FrontedServers

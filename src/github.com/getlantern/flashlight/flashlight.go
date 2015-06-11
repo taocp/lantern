@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/viper"
+
 	"github.com/getlantern/fronted"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/i18n"
@@ -239,10 +241,10 @@ func applyClientConfig(client *client.Client, cfg *config.Config) {
 	autoupdate.Configure(cfg)
 	logging.Configure(cfg, version, buildDate)
 	settings.Configure(cfg, version, buildDate)
-	proxiedsites.Configure(cfg.ProxiedSites)
+	proxiedsites.Configure()
 	analytics.Configure(cfg, version)
-	log.Debugf("Proxy all traffic or not: %v", cfg.Client.ProxyAll)
-	ServeProxyAllPacFile(cfg.Client.ProxyAll)
+	log.Debugf("Proxy all traffic or not: %v", viper.GetBool("client.proxyall"))
+	ServeProxyAllPacFile(viper.GetBool("client.proxyall"))
 	// Note - we deliberately ignore the error from statreporter.Configure here
 	statreporter.Configure()
 
