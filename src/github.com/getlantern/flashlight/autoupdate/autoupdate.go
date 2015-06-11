@@ -38,26 +38,30 @@ var (
 func Configure() {
 	proxyAddr := viper.GetString("addr")
 	cfgMutex.Lock()
-	defer cfgMutex.Unlock()
 	if proxyAddr == lastAddr {
+		cfgMutex.Unlock()
 		log.Debug("Autoupdate configuration unchanged")
 		return
 	}
 
 	lastAddr = proxyAddr
 	if proxyAddr == "" {
+		cfgMutex.Unlock()
 		log.Error("No known proxy, disabling auto updates.")
 		return
 	}
+	// use goroutine here as util.HTTPClient will waitforserver
+	go func() {
+		var err error
+		httpClient, err = util.HTTPClient(viper.GetString("cloudconfigca"), proxyAddr)
+		cfgMutex.Unlock()
+		if err != nil {
+			log.Errorf("Could not create proxied HTTP client, disabling auto-updates: %v", err)
+			return
+		}
 
-	var err error
-	httpClient, err = util.HTTPClient(viper.GetString("cloudconfigca"), proxyAddr)
-	if err != nil {
-		log.Errorf("Could not create proxied HTTP client, disabling auto-updates: %v", err)
-		return
-	}
-
-	go watchForUpdate()
+		go watchForUpdate()
+	}()
 }
 
 func watchForUpdate() {
