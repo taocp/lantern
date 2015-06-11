@@ -11,7 +11,6 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"sync/atomic"
 	"time"
 
@@ -98,25 +97,6 @@ func Init() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	t := time.NewTimer(cfg.cloudPollSleepTime())
-	go func() {
-		for {
-			<-t.C
-			buf, err := cfg.fetchCloudConfig()
-			if err != nil {
-				log.Debug(err)
-				continue
-			}
-			if buf == nil {
-				log.Debugf("Config unchanged in cloud")
-				continue
-			}
-			if err := cfg.updateFrom(buf); err != nil {
-				log.Debug(err)
-			}
-			t.Reset(cfg.cloudPollSleepTime())
-		}
-	}()
 	return cfg, err
 }
 
@@ -137,6 +117,29 @@ func Run(updateHandler func(updated *Config)) error {
 		log.Fatal(err)
 	}
 
+	go func() {
+		t := time.NewTimer(0)
+		for {
+			t.Reset(cloudPollSleepTime())
+			<-t.C
+			url := viper.GetString("cloudconfig")
+			log.Debugf("Checking for cloud configuration at: %s", url)
+			buf, err := fetchCloudConfig(url)
+			if err != nil {
+				log.Debug(err)
+				continue
+			}
+			if buf == nil {
+				log.Debugf("Config unchanged in cloud")
+				continue
+			}
+			if err := updateFrom(buf); err != nil {
+				log.Debug(err)
+				continue
+			}
+			updateHandler(&Config{})
+		}
+	}()
 	for {
 		select {
 		case event := <-watcher.Events:
@@ -299,8 +302,8 @@ func (cfg *Config) ApplyDefaults() {
 	viper.SetDefault("addr", "localhost:8787")
 	viper.SetDefault("cloudconfig", "https://config.getiantem.org/cloud.yaml.gz")
 	viper.SetDefault("instanceid", hex.EncodeToString(uuid.NodeID()))
-	viper.SetDefault("stats.statshubaddr", "pure-journey-3547.herokuapp.com")
-	viper.SetDefault("stats.reportingperiod", "localhost:8787")*/
+	viper.SetDefault("stats.statshub", "pure-journey-3547.herokuapp.com")
+	viper.SetDefault("stats.statsperiod", "localhost:8787")*/
 }
 
 func (cfg *Config) applyClientDefaults() {
@@ -375,13 +378,11 @@ func (cfg *Config) IsUpstream() bool {
 	return !cfg.IsDownstream()
 }
 
-func (cfg Config) cloudPollSleepTime() time.Duration {
+func cloudPollSleepTime() time.Duration {
 	return time.Duration((CloudConfigPollInterval.Nanoseconds() / 2) + rand.Int63n(CloudConfigPollInterval.Nanoseconds()))
 }
 
-func (cfg Config) fetchCloudConfig() ([]byte, error) {
-	url := cfg.CloudConfig
-	log.Debugf("Checking for cloud configuration at: %s", url)
+func fetchCloudConfig(url string) ([]byte, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to construct request for cloud config at %s: %s", url, err)
@@ -425,7 +426,7 @@ type cloudConfig struct {
 // updateFrom creates a new Config by 'merging' the given yaml into this Config.
 // The masquerade sets, the collections of servers, and the trusted CAs in the
 // update yaml  completely replace the ones in the original Config.
-func (updated *Config) updateFrom(updateBytes []byte) error {
+func updateFrom(updateBytes []byte) error {
 	ccfg := cloudConfig{
 		Client: client.ClientConfig{
 			FrontedServers: []*client.FrontedServerInfo{},
@@ -450,7 +451,7 @@ func (updated *Config) updateFrom(updateBytes []byte) error {
 	viper.SetDefault("client.frontedservers", ccfg.Client.FrontedServers)
 	viper.SetDefault("client.masqueradesets", ccfg.Client.MasqueradeSets)
 	viper.SetDefault("trustedcas", ccfg.TrustedCAs)
-	// XXX: does this need a mutex, along with everyone that uses the config?
+	/*// XXX: does this need a mutex, along with everyone that uses the config?
 	oldFrontedServers := updated.Client.FrontedServers
 	oldChainedServers := updated.Client.ChainedServers
 	oldMasqueradeSets := updated.Client.MasqueradeSets
@@ -479,6 +480,6 @@ func (updated *Config) updateFrom(updateBytes []byte) error {
 			updated.ProxiedSites.Cloud = append(updated.ProxiedSites.Cloud, domain)
 		}
 		sort.Strings(updated.ProxiedSites.Cloud)
-	}
+	}*/
 	return nil
 }
