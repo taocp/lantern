@@ -62,13 +62,6 @@ type Config struct {
 	TrustedCAs    []*CA
 }
 
-func Configure(c *http.Client) {
-	httpClient.Store(c)
-	// No-op if already started.
-	// TODO: fs-notify
-	//m.StartPolling()
-}
-
 // CA represents a certificate authority
 type CA struct {
 	CommonName string
@@ -89,15 +82,19 @@ func Init() (*Config, error) {
 		return nil, fmt.Errorf("Unable to read lantern.yaml: %s", err)
 	}
 	var cfg *Config = &Config{}
-	cfg.applyFlags()
 	// TODO: feed with actual data from cloud config
-	cfg.ApplyDefaults()
+	cfg.applyDefaults()
+	cfg.applyFlags()
 	// TODO: feed actual parameter from yaml to cfg
 	err = updateGlobals(cfg)
 	if err != nil {
 		return nil, err
 	}
 	return cfg, err
+}
+
+func Configure(c *http.Client) {
+	httpClient.Store(c)
 }
 
 // Run runs the configuration system.
@@ -148,7 +145,7 @@ func Run(updateHandler func(updated *Config)) error {
 				var cfg *Config = &Config{}
 				cfg.applyFlags()
 				// TODO: feed with actual data from cloud config
-				cfg.ApplyDefaults()
+				cfg.applyDefaults()
 				// TODO: feed actual parameter from yaml to cfg
 				// especially trustedcas
 				err = updateGlobals(cfg)
@@ -239,143 +236,60 @@ func (cfg *Config) SetVersion(version int) {
 	cfg.Version = version
 }
 
-// ApplyDefaults implements the method from interface yamlconf.Config
+// applyDefaults implements the method from interface yamlconf.Config
 //
-// ApplyDefaults populates default values on a Config to make sure that we have
+// applyDefaults populates default values on a Config to make sure that we have
 // a minimum viable config for running.  As new settings are added to
 // flashlight, this function should be updated to provide sensible defaults for
 // those settings.*/
-func (cfg *Config) ApplyDefaults() {
-	if cfg.Role == "" {
-		cfg.Role = "client"
-	}
-
-	if cfg.Addr == "" {
-		cfg.Addr = "localhost:8787"
-	}
-
-	if cfg.UIAddr == "" {
-		cfg.UIAddr = "localhost:16823"
-	}
-
-	if cfg.CloudConfig == "" {
-		cfg.CloudConfig = "https://config.getiantem.org/cloud.yaml.gz"
-	}
-
-	if cfg.InstanceId == "" {
-		cfg.InstanceId = hex.EncodeToString(uuid.NodeID())
-	}
-
-	// Make sure we always have a stats config
-	if cfg.Stats == nil {
-		cfg.Stats = &statreporter.Config{}
-	}
-
-	if cfg.Stats.StatshubAddr == "" {
-		cfg.Stats.StatshubAddr = *statshubAddr
-	}
-
-	if cfg.Client != nil && cfg.Role == "client" {
-		cfg.applyClientDefaults()
-	}
-
-	if cfg.ProxiedSites == nil {
-		log.Debugf("Adding empty proxiedsites")
-		cfg.ProxiedSites = &proxiedsites.Config{
-			Delta: &proxiedsites.Delta{
-				Additions: []string{},
-				Deletions: []string{},
-			},
-			Cloud: []string{},
-		}
-	}
-
-	if cfg.ProxiedSites.Cloud == nil || len(cfg.ProxiedSites.Cloud) == 0 {
-		log.Debugf("Loading default cloud proxiedsites")
-		cfg.ProxiedSites.Cloud = defaultProxiedSites
-	}
-
-	if cfg.TrustedCAs == nil || len(cfg.TrustedCAs) == 0 {
-		cfg.TrustedCAs = defaultTrustedCAs
-	}
-	/*viper.SetDefault("role", "client")
+func (cfg *Config) applyDefaults() {
+	viper.SetDefault("role", "client")
 	viper.SetDefault("addr", "localhost:8787")
 	viper.SetDefault("cloudconfig", "https://config.getiantem.org/cloud.yaml.gz")
 	viper.SetDefault("instanceid", hex.EncodeToString(uuid.NodeID()))
-	viper.SetDefault("stats.statshub", "pure-journey-3547.herokuapp.com")
-	viper.SetDefault("stats.statsperiod", "localhost:8787")*/
-}
+	viper.SetDefault("autoreport", true)
+	viper.SetDefault("autolaunch", false)
 
-func (cfg *Config) applyClientDefaults() {
-	// Make sure we always have at least one masquerade set
-	if cfg.Client.MasqueradeSets == nil {
-		cfg.Client.MasqueradeSets = make(map[string][]*fronted.Masquerade)
-	}
-	if len(cfg.Client.MasqueradeSets) == 0 {
-		cfg.Client.MasqueradeSets[cloudflare] = cloudflareMasquerades
-	}
+	viper.SetDefault("stats.statshubaddr", "pure-journey-3547.herokuapp.com")
+	viper.SetDefault("stats.reportingperiod", "localhost:8787")
 
-	// Make sure we always have at least one server
-	if cfg.Client.FrontedServers == nil {
-		cfg.Client.FrontedServers = make([]*client.FrontedServerInfo, 0)
+	viper.SetDefault("client.proxyall", false)
+	viper.SetDefault("client.minqos", 0)
+	viper.SetDefault("client.dumpheaders", false)
+	viper.Set("client.masqueradesets", map[string][]*fronted.Masquerade{cloudflare: cloudflareMasquerades})
+	viper.Set("client.frontedservers", []*client.FrontedServerInfo{
+		&client.FrontedServerInfo{
+			Host:           "nl.fallbacks.getiantem.org",
+			Port:           443,
+			PoolSize:       30,
+			MasqueradeSet:  cloudflare,
+			MaxMasquerades: 20,
+			QOS:            10,
+			Weight:         4000,
+		},
+	})
+	css := make(map[string]*client.ChainedServerInfo, len(fallbacks))
+	for key, fb := range fallbacks {
+		css[key] = fb
 	}
-	if len(cfg.Client.FrontedServers) == 0 && len(cfg.Client.ChainedServers) == 0 {
-		cfg.Client.FrontedServers = []*client.FrontedServerInfo{
-			&client.FrontedServerInfo{
-				Host:           "nl.fallbacks.getiantem.org",
-				Port:           443,
-				PoolSize:       30,
-				MasqueradeSet:  cloudflare,
-				MaxMasquerades: 20,
-				QOS:            10,
-				Weight:         4000,
-			},
-		}
+	viper.Set("client.chainedservers", css)
 
-		cfg.Client.ChainedServers = make(map[string]*client.ChainedServerInfo, len(fallbacks))
-		for key, fb := range fallbacks {
-			cfg.Client.ChainedServers[key] = fb
-		}
-	}
-
-	if cfg.AutoReport == nil {
-		cfg.AutoReport = new(bool)
-		*cfg.AutoReport = true
-	}
-
-	if cfg.AutoLaunch == nil {
-		cfg.AutoLaunch = new(bool)
-		*cfg.AutoLaunch = false
-	}
-
-	// Make sure all servers have a QOS and Weight configured
-	for _, server := range cfg.Client.FrontedServers {
-		if server.QOS == 0 {
-			server.QOS = 5
-		}
-		if server.Weight == 0 {
-			server.Weight = 100
-		}
-		if server.RedialAttempts == 0 {
-			server.RedialAttempts = 2
-		}
-	}
-
-	// Always make sure we have a map of ChainedServers
-	if cfg.Client.ChainedServers == nil {
-		cfg.Client.ChainedServers = make(map[string]*client.ChainedServerInfo)
-	}
-
-	// Sort servers so that they're always in a predictable order
-	cfg.Client.SortServers()
+	viper.SetDefault("proxiedsites", proxiedsites.Config{
+		Delta: &proxiedsites.Delta{
+			Additions: []string{},
+			Deletions: []string{},
+		},
+		Cloud: defaultProxiedSites,
+	})
+	viper.SetDefault("trustedcas", defaultTrustedCAs)
 }
 
 func (cfg *Config) IsDownstream() bool {
-	return cfg.Role == "client"
+	return viper.GetString("role") == "client"
 }
 
 func (cfg *Config) IsUpstream() bool {
-	return !cfg.IsDownstream()
+	return viper.GetString("role") == "server"
 }
 
 func cloudPollSleepTime() time.Duration {

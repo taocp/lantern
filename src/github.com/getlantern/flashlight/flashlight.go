@@ -128,7 +128,7 @@ func doMain() error {
 			exit(err)
 		}
 	}()
-	if *help || cfg.Addr == "" || (cfg.Role != "server" && cfg.Role != "client") {
+	if *help || viper.GetString("addr") == "" {
 		flag.Usage()
 		return fmt.Errorf("Wrong arguments")
 	}
@@ -146,8 +146,11 @@ func doMain() error {
 	if cfg.IsDownstream() {
 		// This will open a proxy on the address and port given by -addr
 		runClientProxy(cfg)
-	} else {
+	} else if cfg.IsUpstream() {
 		runServerProxy(cfg)
+	} else {
+		flag.Usage()
+		return fmt.Errorf("Wrong arguments")
 	}
 
 	return waitForExit()
@@ -249,7 +252,7 @@ func applyClientConfig(client *client.Client, cfg *config.Config) {
 	statreporter.Configure()
 
 	// Update client configuration and get the highest QOS dialer available.
-	hqfd := client.Configure(cfg.Client)
+	hqfd := client.Configure()
 	if hqfd == nil {
 		log.Errorf("No fronted dialer available, not enabling geolocation, stats or analytics")
 	} else {

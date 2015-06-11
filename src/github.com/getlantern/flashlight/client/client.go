@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/spf13/viper"
+
 	"github.com/getlantern/balancer"
 	"github.com/getlantern/fronted"
 	"github.com/getlantern/golog"
@@ -84,7 +86,16 @@ func (client *Client) ListenAndServe(onListeningFn func()) error {
 // Configure updates the client's configuration.  Configure can be called
 // before or after ListenAndServe, and can be called multiple times.  It
 // returns the highest QOS fronted.Dialer available, or nil if none available.
-func (client *Client) Configure(cfg *ClientConfig) fronted.Dialer {
+func (client *Client) Configure() fronted.Dialer {
+	cfg := ClientConfig{
+		MinQOS:         viper.GetInt("client.minqos"),
+		DumpHeaders:    viper.GetBool("client.dumpheaders"),
+		ProxyAll:       viper.GetBool("client.proxyall"),
+		FrontedServers: viper.Get("client.frontedservers").([]*FrontedServerInfo),
+		ChainedServers: viper.Get("client.chainedservers").(map[string]*ChainedServerInfo),
+		MasqueradeSets: viper.Get("client.masqueradesets").(map[string][]*fronted.Masquerade),
+	}
+
 	client.cfgMutex.Lock()
 	defer client.cfgMutex.Unlock()
 
@@ -106,11 +117,11 @@ func (client *Client) Configure(cfg *ClientConfig) fronted.Dialer {
 	client.ProxyAll = cfg.ProxyAll
 
 	var bal *balancer.Balancer
-	bal, client.hqfd = client.initBalancer(cfg)
+	bal, client.hqfd = client.initBalancer(&cfg)
 
 	client.initReverseProxy(bal, cfg.DumpHeaders)
 
-	client.priorCfg = cfg
+	client.priorCfg = &cfg
 	client.priorTrustedCAs = &x509.CertPool{}
 	*client.priorTrustedCAs = *globals.TrustedCAs
 
