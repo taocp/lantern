@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/viper"
 
 	//"github.com/getlantern/flashlight/analytics"
-	//"github.com/getlantern/flashlight/config"
+	"github.com/getlantern/flashlight/config"
 	"github.com/getlantern/launcher"
 
 	"github.com/getlantern/flashlight/ui"
@@ -92,8 +92,13 @@ func read() {
 	log.Tracef("Reading settings messages!!")
 	for msg := range service.In {
 		log.Tracef("Read settings message!! %q", msg)
-		// settings := (msg).(map[string]interface{})
-		// TODO: write to config file
+		settings := (msg).(map[string]interface{})
+		transformed := map[string]interface{}{}
+		transformed["autoreport"] = settings["autoReport"]
+		transformed["autolaunch"] = settings["autoLaunch"]
+		transformed["client.proxyall"] = settings["proxyAll"]
+		// don't bother apply settings as lantern.yaml will be reload
+		config.WriteParams(transformed)
 		/*config.Update(func(updated *config.Config) error {
 
 			if autoReport, ok := settings["autoReport"].(bool); ok {

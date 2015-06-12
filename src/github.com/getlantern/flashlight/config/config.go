@@ -399,3 +399,37 @@ func updateFrom(updateBytes []byte) error {
 	}*/
 	return nil
 }
+
+func WriteParams(params map[string]interface{}) error {
+	configPath, err := InConfigDir("lantern.yaml")
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(configPath, os.O_RDWR, os.ModeExclusive)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	buf, err := ioutil.ReadAll(f)
+	if err != nil {
+		return err
+	}
+	dest := map[string]interface{}{}
+	if err = yaml.Unmarshal(buf, &dest); err != nil {
+		return err
+	}
+	for k, v := range params {
+		dest[k] = v
+	}
+	buf, err = yaml.Marshal(dest)
+	_, err = f.Seek(0, 0)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(buf)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

@@ -31,6 +31,8 @@ func Configure(version string) {
 		if err != nil {
 			log.Errorf("Error starting analytics service: %q", err)
 		}
+	} else {
+		StopService()
 	}
 }
 
