@@ -128,8 +128,8 @@ type delta struct {
 	errCh  chan error
 }
 
-// Next gets the next version of the Config, blocking until the config is
-// updated.
+// Next gets the channel of next version of the Config,
+// which is blocked until the config is updated.
 func (m *Manager) Next() chan Config {
 	return m.nextCfgCh
 }

@@ -37,6 +37,7 @@ var (
 	// localCfg stores a pointer to Config object, the in memory representation of lantern.yaml.
 	// Some fields will be overrode by cloud config before return to caller.
 	localCfg atomic.Value
+	// localCfg stores a pointer to cloudConfig object, the in memory representation of cloud.yaml.
 	cloudCfg atomic.Value
 )
 

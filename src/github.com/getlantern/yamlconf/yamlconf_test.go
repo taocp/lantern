@@ -129,7 +129,7 @@ func TestFileAndUpdate(t *testing.T) {
 		wg.Done()
 	}()
 
-	updated := m.Next()
+	updated := <-m.Next()
 	assert.Equal(t, &TestCfg{
 		Version: 1,
 		N: &Nested{
@@ -138,7 +138,7 @@ func TestFileAndUpdate(t *testing.T) {
 		},
 	}, updated, "Config from updated file should contain correct data")
 
-	updated = m.Next()
+	updated = <-m.Next()
 	assert.Equal(t, &TestCfg{
 		Version: 2,
 		N: &Nested{
@@ -195,7 +195,7 @@ func TestCustomPoll(t *testing.T) {
 	}
 	m.StartPolling()
 
-	updated := m.Next()
+	updated := <-m.Next()
 
 	assert.Equal(t, &TestCfg{
 		Version: 2,
@@ -240,7 +240,7 @@ func TestConfigServer(t *testing.T) {
 	_, err = http.Post(fmt.Sprintf("http://%s/N", ConfigSrvAddr), "text/yaml", bytes.NewReader(nny))
 	assert.NoError(t, err, "POSTing to config server should succeed")
 
-	updated := m.Next()
+	updated := <-m.Next()
 
 	assert.Equal(t, &TestCfg{
 		Version: 2,
@@ -254,7 +254,7 @@ func TestConfigServer(t *testing.T) {
 	_, err = (&http.Client{}).Do(req)
 	assert.NoError(t, err, "DELETEing to config server should succeed")
 
-	updated = m.Next()
+	updated = <-m.Next()
 
 	assert.Equal(t, &TestCfg{
 		Version: 3,
