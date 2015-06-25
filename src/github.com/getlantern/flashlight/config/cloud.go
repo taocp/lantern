@@ -26,6 +26,7 @@ type cloudConfig struct {
 
 const (
 	CloudConfigPollInterval = 1 * time.Minute
+	cloudflare              = "cloudflare"
 	etag                    = "X-Lantern-Etag"
 	ifNoneMatch             = "X-Lantern-If-None-Match"
 )
@@ -33,6 +34,20 @@ const (
 var (
 	cloudConfigChanged chan bool = make(chan bool)
 )
+
+func emptyCloudConfig() *cloudConfig {
+	return &cloudConfig{
+		Client: &client.ClientConfig{
+			FrontedServers: []*client.FrontedServerInfo{},
+			ChainedServers: map[string]*client.ChainedServerInfo{},
+			MasqueradeSets: map[string][]*fronted.Masquerade{},
+		},
+		ProxiedSites: &proxiedsites.Config{
+			Delta: &proxiedsites.Delta{},
+		},
+		TrustedCAs: []*CA{},
+	}
+}
 
 func startCloudPoll() {
 	go func() {
@@ -44,7 +59,6 @@ func startCloudPoll() {
 }
 
 func cloudPoll() {
-	newCfg := cloudConfig{}
 	cfg := localCfg.Load().(*Config)
 	b, err := fetchCloudConfig(cfg.CloudConfig)
 	if err != nil {
@@ -54,12 +68,14 @@ func cloudPoll() {
 	if b == nil {
 		return
 	}
+	newCfg := emptyCloudConfig()
 	if err = newCfg.fromBytes(b); err != nil {
 		log.Errorf("Error parse cloud config: %s", err)
 		return
 	}
+	newCfg.Client.SortFrontedServers()
 	log.Debug("Applying cloud config")
-	cloudCfg.Store(&newCfg)
+	cloudCfg.Store(newCfg)
 	cloudConfigChanged <- true
 }
 
@@ -104,14 +120,30 @@ func fetchCloudConfig(url string) ([]byte, error) {
 	return ioutil.ReadAll(gzReader)
 }
 
+func (cfg *cloudConfig) ApplyDefaults() {
+	cfg.ProxiedSites.Cloud = defaultProxiedSites
+	cfg.TrustedCAs = defaultTrustedCAs
+	cfg.Client.MasqueradeSets[cloudflare] = cloudflareMasquerades
+	cfg.Client.FrontedServers = []*client.FrontedServerInfo{
+		&client.FrontedServerInfo{
+			Host:           "nl.fallbacks.getiantem.org",
+			Port:           443,
+			PoolSize:       30,
+			MasqueradeSet:  cloudflare,
+			MaxMasquerades: 20,
+			QOS:            10,
+			Weight:         4000,
+		},
+	}
+
+	cfg.Client.ChainedServers = make(map[string]*client.ChainedServerInfo, len(fallbacks))
+	for key, fb := range fallbacks {
+		cfg.Client.ChainedServers[key] = fb
+	}
+}
+
 // fromBytes creates a new cloudConfig from given yaml.
 func (updated *cloudConfig) fromBytes(updateBytes []byte) error {
-	updated.Client = &client.ClientConfig{}
-	updated.Client.FrontedServers = []*client.FrontedServerInfo{}
-	updated.Client.ChainedServers = map[string]*client.ChainedServerInfo{}
-	updated.Client.MasqueradeSets = map[string][]*fronted.Masquerade{}
-	updated.ProxiedSites = &proxiedsites.Config{Delta: &proxiedsites.Delta{}}
-	updated.TrustedCAs = []*CA{}
 	err := yaml.Unmarshal(updateBytes, updated)
 	if err != nil {
 		return fmt.Errorf("Unable to unmarshal YAML for update: %s", err)

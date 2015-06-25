@@ -13,7 +13,6 @@ import (
 
 	"github.com/getlantern/appdir"
 	"github.com/getlantern/deepcopy"
-	"github.com/getlantern/fronted"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/proxiedsites"
 	"github.com/getlantern/yamlconf"
@@ -24,10 +23,6 @@ import (
 	"github.com/getlantern/flashlight/statreporter"
 )
 
-const (
-	cloudflare = "cloudflare"
-)
-
 var (
 	log                 = golog.LoggerFor("flashlight.config")
 	m                   *yamlconf.Manager
@@ -35,7 +30,8 @@ var (
 	httpClient          atomic.Value
 
 	// localCfg stores a pointer to Config object, the in memory representation of lantern.yaml.
-	// Some fields will be overrode by cloud config before return to caller.
+	// Although it uses Config object to avoid duplication of code,
+	// those extra fields will always be overrode by cloud config or default.
 	localCfg atomic.Value
 	// localCfg stores a pointer to cloudConfig object, the in memory representation of cloud.yaml.
 	cloudCfg atomic.Value
@@ -75,6 +71,10 @@ type CA struct {
 
 // Init initializes the configuration system.
 func Init() (*Config, error) {
+	ccfg := emptyCloudConfig()
+	ccfg.ApplyDefaults()
+	cloudCfg.Store(ccfg)
+
 	configPath, err := InConfigDir("lantern.yaml")
 	if err != nil {
 		return nil, err
@@ -91,15 +91,18 @@ func Init() (*Config, error) {
 			return cfg.applyFlags()
 		},
 	}
-	initial, err := m.Init()
+
 	var cfg *Config
-	if err == nil {
-		cfg = initial.(*Config)
-		localCfg.Store(cfg)
-		err = updateGlobals(cfg)
-		if err != nil {
-			return nil, err
-		}
+	initial, err := m.Init()
+	if err != nil {
+		return nil, err
+	}
+	cfg = initial.(*Config)
+	localCfg.Store(cfg)
+	cfg = mergedConfig()
+	err = updateGlobals(cfg)
+	if err != nil {
+		return nil, err
 	}
 	return cfg, err
 }
@@ -126,14 +129,12 @@ func Run(updateHandler func(updated *Config)) error {
 func mergedConfig() *Config {
 	merged := Config{}
 	deepcopy.Copy(&merged, localCfg.Load().(*Config))
-	// In case cloud config is not available (nil), use local/default one
-	if cloud, ok := cloudCfg.Load().(*cloudConfig); ok {
-		merged.Client.FrontedServers = cloud.Client.FrontedServers
-		merged.Client.ChainedServers = cloud.Client.ChainedServers
-		merged.Client.MasqueradeSets = cloud.Client.MasqueradeSets
-		merged.ProxiedSites = cloud.ProxiedSites
-		merged.TrustedCAs = cloud.TrustedCAs
-	}
+	cloud := cloudCfg.Load().(*cloudConfig)
+	merged.Client.FrontedServers = cloud.Client.FrontedServers
+	merged.Client.ChainedServers = cloud.Client.ChainedServers
+	merged.Client.MasqueradeSets = cloud.Client.MasqueradeSets
+	merged.ProxiedSites = cloud.ProxiedSites
+	merged.TrustedCAs = cloud.TrustedCAs
 	return &merged
 }
 
@@ -232,60 +233,9 @@ func (cfg *Config) ApplyDefaults() {
 	if cfg.Client != nil && cfg.Role == "client" {
 		cfg.applyClientDefaults()
 	}
-
-	if cfg.ProxiedSites == nil {
-		log.Debugf("Adding empty proxiedsites")
-		cfg.ProxiedSites = &proxiedsites.Config{
-			Delta: &proxiedsites.Delta{
-				Additions: []string{},
-				Deletions: []string{},
-			},
-			Cloud: []string{},
-		}
-	}
-
-	if cfg.ProxiedSites.Cloud == nil || len(cfg.ProxiedSites.Cloud) == 0 {
-		log.Debugf("Loading default cloud proxiedsites")
-		cfg.ProxiedSites.Cloud = defaultProxiedSites
-	}
-
-	if cfg.TrustedCAs == nil || len(cfg.TrustedCAs) == 0 {
-		cfg.TrustedCAs = defaultTrustedCAs
-	}
 }
 
 func (cfg *Config) applyClientDefaults() {
-	// Make sure we always have at least one masquerade set
-	if cfg.Client.MasqueradeSets == nil {
-		cfg.Client.MasqueradeSets = make(map[string][]*fronted.Masquerade)
-	}
-	if len(cfg.Client.MasqueradeSets) == 0 {
-		cfg.Client.MasqueradeSets[cloudflare] = cloudflareMasquerades
-	}
-
-	// Make sure we always have at least one server
-	if cfg.Client.FrontedServers == nil {
-		cfg.Client.FrontedServers = make([]*client.FrontedServerInfo, 0)
-	}
-	if len(cfg.Client.FrontedServers) == 0 && len(cfg.Client.ChainedServers) == 0 {
-		cfg.Client.FrontedServers = []*client.FrontedServerInfo{
-			&client.FrontedServerInfo{
-				Host:           "nl.fallbacks.getiantem.org",
-				Port:           443,
-				PoolSize:       30,
-				MasqueradeSet:  cloudflare,
-				MaxMasquerades: 20,
-				QOS:            10,
-				Weight:         4000,
-			},
-		}
-
-		cfg.Client.ChainedServers = make(map[string]*client.ChainedServerInfo, len(fallbacks))
-		for key, fb := range fallbacks {
-			cfg.Client.ChainedServers[key] = fb
-		}
-	}
-
 	if cfg.AutoReport == nil {
 		cfg.AutoReport = new(bool)
 		*cfg.AutoReport = true
@@ -295,27 +245,6 @@ func (cfg *Config) applyClientDefaults() {
 		cfg.AutoLaunch = new(bool)
 		*cfg.AutoLaunch = false
 	}
-
-	// Make sure all servers have a QOS and Weight configured
-	for _, server := range cfg.Client.FrontedServers {
-		if server.QOS == 0 {
-			server.QOS = 5
-		}
-		if server.Weight == 0 {
-			server.Weight = 100
-		}
-		if server.RedialAttempts == 0 {
-			server.RedialAttempts = 2
-		}
-	}
-
-	// Always make sure we have a map of ChainedServers
-	if cfg.Client.ChainedServers == nil {
-		cfg.Client.ChainedServers = make(map[string]*client.ChainedServerInfo)
-	}
-
-	// Sort servers so that they're always in a predictable order
-	cfg.Client.SortServers()
 }
 
 func (cfg *Config) IsDownstream() bool {

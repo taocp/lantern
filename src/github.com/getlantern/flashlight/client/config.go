@@ -21,8 +21,8 @@ type ClientConfig struct {
 	MasqueradeSets map[string][]*fronted.Masquerade
 }
 
-// SortServers sorts the Servers array in place, ordered by host
-func (c *ClientConfig) SortServers() {
+// SortFrontedServers sorts the FrontedServers array in place, ordered by host
+func (c *ClientConfig) SortFrontedServers() {
 	sort.Sort(ByHost(c.FrontedServers))
 }
 
