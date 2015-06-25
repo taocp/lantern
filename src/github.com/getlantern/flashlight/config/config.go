@@ -6,17 +6,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"sync/atomic"
 	"time"
 
 	"code.google.com/p/go-uuid/uuid"
 
 	"github.com/getlantern/appdir"
+	"github.com/getlantern/deepcopy"
 	"github.com/getlantern/fronted"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/proxiedsites"
-	"github.com/getlantern/yaml"
 	"github.com/getlantern/yamlconf"
 
 	"github.com/getlantern/flashlight/client"
@@ -26,9 +25,7 @@ import (
 )
 
 const (
-	CloudConfigPollInterval = 1 * time.Minute
-	cloudflare              = "cloudflare"
-	ifNoneMatch             = "X-Lantern-If-None-Match"
+	cloudflare = "cloudflare"
 )
 
 var (
@@ -36,6 +33,11 @@ var (
 	m                   *yamlconf.Manager
 	lastCloudConfigETag = map[string]string{}
 	httpClient          atomic.Value
+
+	// localCfg stores a pointer to Config object, the in memory representation of lantern.yaml.
+	// Some fields will be overrode by cloud config before return to caller.
+	localCfg atomic.Value
+	cloudCfg atomic.Value
 )
 
 type Config struct {
@@ -61,6 +63,7 @@ func Configure(c *http.Client) {
 	httpClient.Store(c)
 	// No-op if already started.
 	m.StartPolling()
+	startCloudPoll()
 }
 
 // CA represents a certificate authority
@@ -86,35 +89,12 @@ func Init() (*Config, error) {
 			cfg := ycfg.(*Config)
 			return cfg.applyFlags()
 		},
-		CustomPoll: func(currentCfg yamlconf.Config) (mutate func(yamlconf.Config) error, waitTime time.Duration, err error) {
-			// By default, do nothing
-			mutate = func(ycfg yamlconf.Config) error {
-				// do nothing
-				return nil
-			}
-			cfg := currentCfg.(*Config)
-			waitTime = cloudPollSleepTime()
-			if cfg.CloudConfig == "" {
-				// Config doesn't have a CloudConfig, just ignore
-				return
-			}
-
-			var bytes []byte
-			bytes, err = fetchCloudConfig(cfg.CloudConfig)
-			if err == nil && bytes != nil {
-				mutate = func(ycfg yamlconf.Config) error {
-					log.Debugf("Merging cloud configuration")
-					cfg := ycfg.(*Config)
-					return cfg.updateFrom(bytes)
-				}
-			}
-			return
-		},
 	}
 	initial, err := m.Init()
 	var cfg *Config
 	if err == nil {
 		cfg = initial.(*Config)
+		localCfg.Store(cfg)
 		err = updateGlobals(cfg)
 		if err != nil {
 			return nil, err
@@ -126,14 +106,34 @@ func Init() (*Config, error) {
 // Run runs the configuration system.
 func Run(updateHandler func(updated *Config)) error {
 	for {
-		next := m.Next()
-		nextCfg := next.(*Config)
-		err := updateGlobals(nextCfg)
-		if err != nil {
+		// wait for either local or cloud config changes
+		// and merge them to form a complete config.
+		select {
+		case next := <-m.Next():
+			localCfg.Store(next.(*Config))
+		case <-cloudConfigChanged:
+		}
+		cfg := mergedConfig()
+
+		if err := updateGlobals(cfg); err != nil {
 			return err
 		}
-		updateHandler(nextCfg)
+		updateHandler(cfg)
 	}
+}
+
+func mergedConfig() *Config {
+	merged := Config{}
+	deepcopy.Copy(&merged, localCfg.Load().(*Config))
+	// In case cloud config is not available (nil), use local/default one
+	if cloud, ok := cloudCfg.Load().(*cloudConfig); ok {
+		merged.Client.FrontedServers = cloud.Client.FrontedServers
+		merged.Client.ChainedServers = cloud.Client.ChainedServers
+		merged.Client.MasqueradeSets = cloud.Client.MasqueradeSets
+		merged.ProxiedSites = cloud.ProxiedSites
+		merged.TrustedCAs = cloud.TrustedCAs
+	}
+	return &merged
 }
 
 func updateGlobals(cfg *Config) error {
@@ -323,40 +323,4 @@ func (cfg *Config) IsDownstream() bool {
 
 func (cfg *Config) IsUpstream() bool {
 	return !cfg.IsDownstream()
-}
-
-// updateFrom creates a new Config by 'merging' the given yaml into this Config.
-// The masquerade sets, the collections of servers, and the trusted CAs in the
-// update yaml  completely replace the ones in the original Config.
-func (updated *Config) updateFrom(updateBytes []byte) error {
-	// XXX: does this need a mutex, along with everyone that uses the config?
-	oldFrontedServers := updated.Client.FrontedServers
-	oldChainedServers := updated.Client.ChainedServers
-	oldMasqueradeSets := updated.Client.MasqueradeSets
-	oldTrustedCAs := updated.TrustedCAs
-	updated.Client.FrontedServers = []*client.FrontedServerInfo{}
-	updated.Client.ChainedServers = map[string]*client.ChainedServerInfo{}
-	updated.Client.MasqueradeSets = map[string][]*fronted.Masquerade{}
-	updated.TrustedCAs = []*CA{}
-	err := yaml.Unmarshal(updateBytes, updated)
-	if err != nil {
-		updated.Client.FrontedServers = oldFrontedServers
-		updated.Client.ChainedServers = oldChainedServers
-		updated.Client.MasqueradeSets = oldMasqueradeSets
-		updated.TrustedCAs = oldTrustedCAs
-		return fmt.Errorf("Unable to unmarshal YAML for update: %s", err)
-	}
-	// Deduplicate global proxiedsites
-	if len(updated.ProxiedSites.Cloud) > 0 {
-		wlDomains := make(map[string]bool)
-		for _, domain := range updated.ProxiedSites.Cloud {
-			wlDomains[domain] = true
-		}
-		updated.ProxiedSites.Cloud = make([]string, 0, len(wlDomains))
-		for domain, _ := range wlDomains {
-			updated.ProxiedSites.Cloud = append(updated.ProxiedSites.Cloud, domain)
-		}
-		sort.Strings(updated.ProxiedSites.Cloud)
-	}
-	return nil
 }

@@ -8,20 +8,60 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/getlantern/fronted"
 	"github.com/getlantern/proxiedsites"
+	"github.com/getlantern/yaml"
 
 	"github.com/getlantern/flashlight/client"
 )
 
+// cloudConfig is the in memory representation of cloud.yaml
 type cloudConfig struct {
+	// To simplify, just use an ClientConfig object here.
+	// Only those fields existed in cloud.yaml will take effect.
 	Client       *client.ClientConfig
-	ProxiedSites *proxiedsites.Config // List of proxied site domains that get routed through Lantern rather than accessed directly
+	ProxiedSites *proxiedsites.Config
 	TrustedCAs   []*CA
 }
 
 const (
-	etag = "X-Lantern-Etag"
+	CloudConfigPollInterval = 1 * time.Minute
+	etag                    = "X-Lantern-Etag"
+	ifNoneMatch             = "X-Lantern-If-None-Match"
 )
+
+var (
+	cloudConfigChanged chan bool = make(chan bool)
+)
+
+func startCloudPoll() {
+	go func() {
+		for {
+			time.Sleep(cloudPollSleepTime())
+			cloudPoll()
+		}
+	}()
+}
+
+func cloudPoll() {
+	newCfg := cloudConfig{}
+	cfg := localCfg.Load().(*Config)
+	b, err := fetchCloudConfig(cfg.CloudConfig)
+	if err != nil {
+		log.Errorf("Error fetch cloud config: %s", err)
+		return
+	}
+	if b == nil {
+		return
+	}
+	if err = newCfg.fromBytes(b); err != nil {
+		log.Errorf("Error parse cloud config: %s", err)
+		return
+	}
+	log.Debug("Applying cloud config")
+	cloudCfg.Store(&newCfg)
+	cloudConfigChanged <- true
+}
 
 func cloudPollSleepTime() time.Duration {
 	return time.Duration((CloudConfigPollInterval.Nanoseconds() / 2) + rand.Int63n(CloudConfigPollInterval.Nanoseconds()))
@@ -50,7 +90,7 @@ func fetchCloudConfig(url string) ([]byte, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 304 {
-		log.Debugf("Config unchanged in cloud")
+		log.Debugf("Config unchanged in cloud at %s", url)
 		return nil, nil
 	} else if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("Unexpected response status: %d", resp.StatusCode)
@@ -62,4 +102,19 @@ func fetchCloudConfig(url string) ([]byte, error) {
 		return nil, fmt.Errorf("Unable to open gzip reader: %s", err)
 	}
 	return ioutil.ReadAll(gzReader)
+}
+
+// fromBytes creates a new cloudConfig from given yaml.
+func (updated *cloudConfig) fromBytes(updateBytes []byte) error {
+	updated.Client = &client.ClientConfig{}
+	updated.Client.FrontedServers = []*client.FrontedServerInfo{}
+	updated.Client.ChainedServers = map[string]*client.ChainedServerInfo{}
+	updated.Client.MasqueradeSets = map[string][]*fronted.Masquerade{}
+	updated.ProxiedSites = &proxiedsites.Config{Delta: &proxiedsites.Delta{}}
+	updated.TrustedCAs = []*CA{}
+	err := yaml.Unmarshal(updateBytes, updated)
+	if err != nil {
+		return fmt.Errorf("Unable to unmarshal YAML for update: %s", err)
+	}
+	return nil
 }

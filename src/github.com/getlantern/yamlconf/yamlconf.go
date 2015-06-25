@@ -130,8 +130,8 @@ type delta struct {
 
 // Next gets the next version of the Config, blocking until the config is
 // updated.
-func (m *Manager) Next() Config {
-	return <-m.nextCfgCh
+func (m *Manager) Next() chan Config {
+	return m.nextCfgCh
 }
 
 // Update updates the config by using the given mutator function.
